@@ -8,7 +8,7 @@ public class WarehouseService(IWarehouseRepository warehouseRepository) : IWareh
 
     private IWarehouseRepository _warehouseRepository = warehouseRepository;
     
-    public async Task<int> FulfillOrder(FulfillOrderData fulfillOrderData)
+    public async Task<int> FulfillOrderAsync(FulfillOrderData fulfillOrderData)
     {
         if (fulfillOrderData.Amount <= 0)
         {
@@ -16,5 +16,15 @@ public class WarehouseService(IWarehouseRepository warehouseRepository) : IWareh
         }
 
         return await warehouseRepository.FulfillOrderAsync(fulfillOrderData);
+    }
+
+    public async Task<int> FulfillOrderProcAsync(FulfillOrderData fulfillOrderData)
+    {
+        if (fulfillOrderData.Amount <= 0)
+        {
+            throw new ArgumentException("Amount cannot be less equal than 0!");
+        }
+
+        return await warehouseRepository.FulfillOrderProcAsync(fulfillOrderData);
     }
 }

@@ -1,4 +1,5 @@
-﻿using System.Data.SqlClient;
+﻿using System.Data;
+using System.Data.SqlClient;
 using APBD_07.DTOs;
 
 namespace APBD_07.Repositories;
@@ -24,7 +25,7 @@ public class WarehouseRepository(IConfiguration configuration) : IWarehouseRepos
             throw new ArgumentException("Warehouse of given ID does not exist!");
         }
 
-        var tmpIdOrder = await GetMatchingOrderIdAsync(con, fulfillOrderData.IdProduct, fulfillOrderData.Amount);
+        var tmpIdOrder = await GetMatchingOrderIdAsync(con, fulfillOrderData.IdProduct, fulfillOrderData.Amount, fulfillOrderData.CreatedAt);
         // Czy jest takie zamówienie
         if (tmpIdOrder is null)
         {
@@ -46,17 +47,35 @@ public class WarehouseRepository(IConfiguration configuration) : IWarehouseRepos
             var prodWareId =
                 await InsertNewIntoProductWarehouseAsync(con, (SqlTransaction)tran, fulfillOrderData, idOrder);
 
+            // TODO : wyrzucić
             await TestAsync(con, (SqlTransaction)tran);
-            await tran.RollbackAsync();
 
-            // await tran.CommitAsync();
-            return (int) prodWareId!;
+            await tran.CommitAsync();
+            return (int)prodWareId!;
         }
         catch (Exception)
         {
             await tran.RollbackAsync();
             throw;
         }
+    }
+
+    public async Task<int> FulfillOrderProcAsync(FulfillOrderData fulfillOrderData)
+    {
+        await using var con = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+
+        await using var cmd = new SqlCommand();
+        cmd.CommandType = CommandType.StoredProcedure;
+        cmd.CommandText = "AddProductToWarehouse";
+        cmd.Connection = con;
+        cmd.Parameters.AddWithValue("@IdProduct", fulfillOrderData.IdProduct);
+        cmd.Parameters.AddWithValue("@IdWarehouse", fulfillOrderData.IdWarehouse);
+        cmd.Parameters.AddWithValue("@Amount", fulfillOrderData.Amount);
+        cmd.Parameters.AddWithValue("@CreatedAt", DateTime.Now);
+
+        await con.OpenAsync();
+        var prodWareId = (int) (await cmd.ExecuteScalarAsync())!;
+        return prodWareId;
     }
 
     private async Task<bool> DoesProductOfIdExistAsync(SqlConnection con, int idProduct)
@@ -66,7 +85,7 @@ public class WarehouseRepository(IConfiguration configuration) : IWarehouseRepos
         cmd.Parameters.AddWithValue("@IdProduct", idProduct);
         cmd.Connection = con;
 
-        var productOfIdCount = (int?) await cmd.ExecuteScalarAsync();
+        var productOfIdCount = (int?)await cmd.ExecuteScalarAsync();
 
         return productOfIdCount != 0;
     }
@@ -78,21 +97,22 @@ public class WarehouseRepository(IConfiguration configuration) : IWarehouseRepos
         cmd.Parameters.AddWithValue("@IdWarehouse", idWarehouse);
         cmd.Connection = con;
 
-        var warehouseOfIdCount = (int?) await cmd.ExecuteScalarAsync();
+        var warehouseOfIdCount = (int?)await cmd.ExecuteScalarAsync();
 
         return warehouseOfIdCount != 0;
     }
 
-    private async Task<int?> GetMatchingOrderIdAsync(SqlConnection con, int idProduct, int amount)
+    private async Task<int?> GetMatchingOrderIdAsync(SqlConnection con, int idProduct, int amount, DateTime createdAt)
     {
         await using var cmd = new SqlCommand();
         cmd.CommandText =
-            "SELECT IdOrder FROM \"Order\" WHERE IdProduct = @IdProduct AND Amount = @Amount AND FulfilledAt IS NULL;";
+            "SELECT IdOrder FROM \"Order\" WHERE IdProduct = @IdProduct AND Amount = @Amount AND FulfilledAt IS NULL AND CreatedAt < @CreatedAt;";
         cmd.Parameters.AddWithValue("@IdProduct", idProduct);
         cmd.Parameters.AddWithValue("@Amount", amount);
+        cmd.Parameters.AddWithValue("@CreatedAt", createdAt);
         cmd.Connection = con;
 
-        var idOrder = (int?) await cmd.ExecuteScalarAsync();
+        var idOrder = (int?)await cmd.ExecuteScalarAsync();
 
         return idOrder;
     }
@@ -104,7 +124,7 @@ public class WarehouseRepository(IConfiguration configuration) : IWarehouseRepos
         cmd.Parameters.AddWithValue("@IdOrder", idOrder);
         cmd.Connection = con;
 
-        var fulfilledIdOrderCount = (int?) await cmd.ExecuteScalarAsync();
+        var fulfilledIdOrderCount = (int?)await cmd.ExecuteScalarAsync();
 
         return fulfilledIdOrderCount != 0;
     }
@@ -134,7 +154,7 @@ public class WarehouseRepository(IConfiguration configuration) : IWarehouseRepos
         cmd.Parameters.AddWithValue("@Price", productPrice * fulfillOrderData.Amount);
         cmd.Connection = con;
         cmd.Transaction = tran;
-        
+
         var res = (int?)await cmd.ExecuteScalarAsync();
         return res;
     }
@@ -148,10 +168,11 @@ public class WarehouseRepository(IConfiguration configuration) : IWarehouseRepos
         cmd.Connection = con;
         cmd.Transaction = tran;
 
-        var res = (decimal?) await cmd.ExecuteScalarAsync();
+        var res = (decimal?)await cmd.ExecuteScalarAsync();
         return res;
     }
 
+    [Obsolete]
     private async Task TestAsync(SqlConnection con, SqlTransaction tran)
     {
         await using var cmd = new SqlCommand();

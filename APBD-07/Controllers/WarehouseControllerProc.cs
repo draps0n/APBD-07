@@ -4,19 +4,19 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace APBD_07.Controllers;
 
-[Route("/warehouse")]
+[Route("/warehouseProc")]
 [ApiController]
-public class WarehouseController(IWarehouseService warehouseService) : ControllerBase
+public class WarehouseProcController(IWarehouseService warehouseService) : ControllerBase
 {
     private IWarehouseService _warehouseService = warehouseService;
     
     [HttpPost]
-    public async Task<IActionResult> FulfillOrderAsync([FromBody] FulfillOrderData fulfillOrderData)
+    public async Task<IActionResult> FulfillOrderProcAsync([FromBody] FulfillOrderData fulfillOrderData)
     {
         int id;
         try
         {
-            id = await _warehouseService.FulfillOrderAsync(fulfillOrderData);
+            id = await _warehouseService.FulfillOrderProcAsync(fulfillOrderData);
         }
         catch (Exception exception)
         {
