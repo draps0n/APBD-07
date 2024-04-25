@@ -11,12 +11,12 @@ public class WarehouseController(IWarehouseService warehouseService) : Controlle
     private IWarehouseService _warehouseService = warehouseService;
     
     [HttpPost]
-    public IActionResult FulfillOrder([FromBody] FulfillOrderData fulfillOrderData)
+    public async Task<IActionResult> FulfillOrderAsync([FromBody] FulfillOrderData fulfillOrderData)
     {
-        var id = -1;
+        int id;
         try
         {
-            id = _warehouseService.FulfillOrder(fulfillOrderData);
+            id = await _warehouseService.FulfillOrder(fulfillOrderData);
         }
         catch (Exception exception)
         {

@@ -4,5 +4,5 @@ namespace APBD_07.Services;
 
 public interface IWarehouseService
 {
-    int FulfillOrder(FulfillOrderData fulfillOrderData);
+    public Task<int> FulfillOrder(FulfillOrderData fulfillOrderData);
 }
