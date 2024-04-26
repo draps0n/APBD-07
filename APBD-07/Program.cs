@@ -1,5 +1,4 @@
 using APBD_07.Repositories;
-using APBD_07.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,7 +9,6 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddControllers();
 
 builder.Services.AddScoped<IWarehouseRepository, WarehouseRepository>();
-builder.Services.AddScoped<IWarehouseService, WarehouseService>();
 
 var app = builder.Build();
 

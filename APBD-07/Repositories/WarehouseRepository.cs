@@ -1,6 +1,5 @@
 ﻿using System.Data;
 using System.Data.SqlClient;
-using APBD_07.DTOs;
 
 namespace APBD_07.Repositories;
 
@@ -8,117 +7,46 @@ public class WarehouseRepository(IConfiguration configuration) : IWarehouseRepos
 {
     private IConfiguration _configuration = configuration;
 
-    public async Task<int> FulfillOrderAsync(FulfillOrderData fulfillOrderData)
+    public async Task<decimal?> GetPriceOfProductByIdAsync(int idProduct)
     {
         await using var con = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
         await con.OpenAsync();
-
-        // Czy produkt istnieje
-        if (!await DoesProductOfIdExistAsync(con, fulfillOrderData.IdProduct))
-        {
-            throw new ArgumentException("Warehouse of given ID does not exist!");
-        }
-
-        // Czy magazyn istnieje
-        if (!await DoesWarehouseOfIdExistAsync(con, fulfillOrderData.IdWarehouse))
-        {
-            throw new ArgumentException("Warehouse of given ID does not exist!");
-        }
-
-        var tmpIdOrder = await GetMatchingOrderIdAsync(con, fulfillOrderData.IdProduct, fulfillOrderData.Amount, fulfillOrderData.CreatedAt);
-        // Czy jest takie zamówienie
-        if (tmpIdOrder is null)
-        {
-            throw new ArgumentException("No matching order found!");
-        }
-
-        var idOrder = (int)tmpIdOrder;
-
-        // Czy już zrealizowane
-        if (await IsOrderFulfilledAsync(con, idOrder))
-        {
-            throw new ArgumentException("Order already fulfilled!");
-        }
-
-        var tran = await con.BeginTransactionAsync();
-        try
-        {
-            await UpdateFulfillDateAsync(con, (SqlTransaction)tran, idOrder);
-            var prodWareId =
-                await InsertNewIntoProductWarehouseAsync(con, (SqlTransaction)tran, fulfillOrderData, idOrder);
-
-            // TODO : wyrzucić
-            await TestAsync(con, (SqlTransaction)tran);
-
-            await tran.CommitAsync();
-            return (int)prodWareId!;
-        }
-        catch (Exception)
-        {
-            await tran.RollbackAsync();
-            throw;
-        }
-    }
-
-    public async Task<int> FulfillOrderProcAsync(FulfillOrderData fulfillOrderData)
-    {
-        await using var con = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
-
         await using var cmd = new SqlCommand();
-        cmd.CommandType = CommandType.StoredProcedure;
-        cmd.CommandText = "AddProductToWarehouse";
-        cmd.Connection = con;
-        cmd.Parameters.AddWithValue("@IdProduct", fulfillOrderData.IdProduct);
-        cmd.Parameters.AddWithValue("@IdWarehouse", fulfillOrderData.IdWarehouse);
-        cmd.Parameters.AddWithValue("@Amount", fulfillOrderData.Amount);
-        cmd.Parameters.AddWithValue("@CreatedAt", DateTime.Now);
-
-        await con.OpenAsync();
-        var prodWareId = (int) (await cmd.ExecuteScalarAsync())!;
-        return prodWareId;
-    }
-
-    private async Task<bool> DoesProductOfIdExistAsync(SqlConnection con, int idProduct)
-    {
-        await using var cmd = new SqlCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM Product WHERE IdProduct = @IdProduct";
+        cmd.CommandText = "SELECT p.Price FROM Product p WHERE IdProduct = @IdProduct";
         cmd.Parameters.AddWithValue("@IdProduct", idProduct);
         cmd.Connection = con;
-
-        var productOfIdCount = (int?)await cmd.ExecuteScalarAsync();
-
-        return productOfIdCount != 0;
+        return (decimal?)await cmd.ExecuteScalarAsync();
     }
 
-    private async Task<bool> DoesWarehouseOfIdExistAsync(SqlConnection con, int idWarehouse)
+    public async Task<int?> GetWarehouseByIdAsync(int idWarehouse)
     {
+        await using var con = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await con.OpenAsync();
         await using var cmd = new SqlCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM Warehouse WHERE IdWarehouse = @IdWarehouse";
+        cmd.CommandText = "SELECT IdWarehouse FROM Warehouse WHERE IdWarehouse = @IdWarehouse";
         cmd.Parameters.AddWithValue("@IdWarehouse", idWarehouse);
         cmd.Connection = con;
-
-        var warehouseOfIdCount = (int?)await cmd.ExecuteScalarAsync();
-
-        return warehouseOfIdCount != 0;
+        return (int?)await cmd.ExecuteScalarAsync();
     }
 
-    private async Task<int?> GetMatchingOrderIdAsync(SqlConnection con, int idProduct, int amount, DateTime createdAt)
+    public async Task<int?> GetMatchingOrderIdAsync(int idProduct, int amount, DateTime createdAt)
     {
+        await using var con = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await con.OpenAsync();
         await using var cmd = new SqlCommand();
         cmd.CommandText =
-            "SELECT IdOrder FROM \"Order\" WHERE IdProduct = @IdProduct AND Amount = @Amount AND FulfilledAt IS NULL AND CreatedAt < @CreatedAt;";
+            "SELECT IdOrder FROM [Order] WHERE IdProduct = @IdProduct AND Amount = @Amount AND CreatedAt < @CreatedAt;";
         cmd.Parameters.AddWithValue("@IdProduct", idProduct);
         cmd.Parameters.AddWithValue("@Amount", amount);
         cmd.Parameters.AddWithValue("@CreatedAt", createdAt);
         cmd.Connection = con;
-
-        var idOrder = (int?)await cmd.ExecuteScalarAsync();
-
-        return idOrder;
+        return (int?)await cmd.ExecuteScalarAsync();
     }
 
-    private async Task<bool> IsOrderFulfilledAsync(SqlConnection con, int idOrder)
+    public async Task<bool> IsOrderFulfilledAsync(int idOrder)
     {
+        await using var con = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await con.OpenAsync();
         await using var cmd = new SqlCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM Product_Warehouse WHERE IdOrder = @IdOrder;";
         cmd.Parameters.AddWithValue("@IdOrder", idOrder);
@@ -129,78 +57,57 @@ public class WarehouseRepository(IConfiguration configuration) : IWarehouseRepos
         return fulfilledIdOrderCount != 0;
     }
 
-    private async Task UpdateFulfillDateAsync(SqlConnection con, SqlTransaction tran, int idOrder)
+    public async Task<int> FulfillOrderAsync(int idProduct, int idWarehouse, int idOrder, int amount,
+        decimal productPrice, DateTime createdAt)
     {
-        await using var cmd = new SqlCommand();
-        cmd.CommandText = "UPDATE \"Order\" SET FulfilledAt = SYSDATETIME() WHERE IdOrder = @IdOrder;";
-        cmd.Parameters.AddWithValue("@IdOrder", idOrder);
-        cmd.Connection = con;
-        cmd.Transaction = tran;
-        await cmd.ExecuteNonQueryAsync();
-    }
-
-    private async Task<int?> InsertNewIntoProductWarehouseAsync(SqlConnection con, SqlTransaction tran,
-        FulfillOrderData fulfillOrderData,
-        int idOrder)
-    {
-        var productPrice = await GetPriceOfProductAsync(con, tran, fulfillOrderData.IdProduct);
-        await using var cmd = new SqlCommand();
-        cmd.CommandText =
-            "INSERT INTO Product_Warehouse(IdWarehouse, IdProduct, IdOrder, Amount, Price, CreatedAt) VALUES (@IdWarehouse, @IdProduct, @IdOrder, @Amount, @Price, SYSDATETIME()); SELECT CONVERT(INT, SCOPE_IDENTITY());";
-        cmd.Parameters.AddWithValue("@IdWarehouse", fulfillOrderData.IdProduct);
-        cmd.Parameters.AddWithValue("@IdProduct", fulfillOrderData.IdProduct);
-        cmd.Parameters.AddWithValue("@IdOrder", idOrder);
-        cmd.Parameters.AddWithValue("@Amount", fulfillOrderData.Amount);
-        cmd.Parameters.AddWithValue("@Price", productPrice * fulfillOrderData.Amount);
-        cmd.Connection = con;
-        cmd.Transaction = tran;
-
-        var res = (int?)await cmd.ExecuteScalarAsync();
-        return res;
-    }
-
-    private async Task<decimal?> GetPriceOfProductAsync(SqlConnection con, SqlTransaction tran, int idProduct)
-    {
-        await using var cmd = new SqlCommand();
-        cmd.CommandText =
-            "SELECT Price FROM Product WHERE IdProduct = @IdProduct;";
-        cmd.Parameters.AddWithValue("@IdProduct", idProduct);
-        cmd.Connection = con;
-        cmd.Transaction = tran;
-
-        var res = (decimal?)await cmd.ExecuteScalarAsync();
-        return res;
-    }
-
-    [Obsolete]
-    private async Task TestAsync(SqlConnection con, SqlTransaction tran)
-    {
-        await using var cmd = new SqlCommand();
-        cmd.CommandText = "SELECT * FROM Product_Warehouse";
-        cmd.Connection = con;
-        cmd.Transaction = tran;
-
-        await using var reader = await cmd.ExecuteReaderAsync();
-        while (reader.Read())
+        await using var con = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await con.OpenAsync();
+        var tran = await con.BeginTransactionAsync();
+        try
         {
-            Console.WriteLine("Czytam");
-            var idProdWare = reader.GetInt32(0);
-            var idWare = reader.GetInt32(1);
-            var idProd = reader.GetInt32(2);
-            var idOrder = reader.GetInt32(3);
-            var amount = reader.GetInt32(4);
-            var price = reader.GetDecimal(5);
-            var createdAt = reader.GetDateTime(6);
+            await using var updateCmd = new SqlCommand();
+            updateCmd.CommandText = "UPDATE [Order] SET FulfilledAt = SYSDATETIME() WHERE IdOrder = @IdOrder;";
+            updateCmd.Parameters.AddWithValue("@IdOrder", idOrder);
+            updateCmd.Connection = con;
+            updateCmd.Transaction = (SqlTransaction)tran;
+            await updateCmd.ExecuteNonQueryAsync();
 
-            Console.WriteLine(
-                idProdWare + "\t" +
-                idWare + "\t" +
-                idProd + "\t" +
-                idOrder + "\t" +
-                amount + "\t" +
-                price + "\t" +
-                createdAt
-            );
+            await using var insertCmd = new SqlCommand();
+            insertCmd.CommandText =
+                "INSERT INTO Product_Warehouse(IdWarehouse, IdProduct, IdOrder, Amount, Price, CreatedAt) " +
+                "VALUES (@IdWarehouse, @IdProduct, @IdOrder, @Amount, @Price, SYSDATETIME()); " +
+                "SELECT CONVERT(INT, SCOPE_IDENTITY());";
+            insertCmd.Parameters.AddWithValue("@IdWarehouse", idWarehouse);
+            insertCmd.Parameters.AddWithValue("@IdProduct", idProduct);
+            insertCmd.Parameters.AddWithValue("@IdOrder", idOrder);
+            insertCmd.Parameters.AddWithValue("@Amount", amount);
+            insertCmd.Parameters.AddWithValue("@Price", productPrice * amount);
+            insertCmd.Connection = con;
+            insertCmd.Transaction = (SqlTransaction)tran;
+            var prodWareId = (int?)await insertCmd.ExecuteScalarAsync();
+            await tran.CommitAsync();
+            return (int)prodWareId!;
         }
+        catch (Exception)
+        {
+            await tran.RollbackAsync();
+            throw;
+        }
+    }
+    
+    public async Task<int> FulfillOrderProcAsync(int idProduct, int idWarehouse, int amount, DateTime createdAt)
+    {
+        await using var con = new SqlConnection(_configuration["ConnectionStrings:DefaultConnection"]);
+        await con.OpenAsync();
+        await using var cmd = new SqlCommand();
+        cmd.CommandType = CommandType.StoredProcedure;
+        cmd.CommandText = "AddProductToWarehouse";
+        cmd.Connection = con;
+        cmd.Parameters.AddWithValue("@IdProduct", idProduct);
+        cmd.Parameters.AddWithValue("@IdWarehouse", idWarehouse);
+        cmd.Parameters.AddWithValue("@Amount", amount);
+        cmd.Parameters.AddWithValue("@CreatedAt", DateTime.Now);
+        var prodWareId = (int)(await cmd.ExecuteScalarAsync())!;
+        return prodWareId;
     }
 }
