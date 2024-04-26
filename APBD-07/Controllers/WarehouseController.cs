@@ -50,7 +50,7 @@ public class WarehouseController(IWarehouseRepository warehouseRepository) : Con
         int idProdWare;
         try
         {
-            idProdWare = await warehouseRepository.FulfillOrderProcAsync(
+            idProdWare = await _warehouseRepository.FulfillOrderProcAsync(
                 fulfillOrderData.IdProduct,
                 fulfillOrderData.IdWarehouse,
                 fulfillOrderData.Amount,
